@@ -1,0 +1,136 @@
+---
+title: "Code for Quant 2 Paper"
+author: "Miles Williams"
+date: "April 11, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T,
+                      message = F,
+                      warning = F)
+```
+
+```{r}
+# Get data
+aidData <- read.csv("https://raw.githubusercontent.com/milesdwilliams15/Quant-2-paper-replication-data/master/aidDataFinal.csv")
+
+# Open required libraries
+library(stargazer)
+library(ggplot2)
+library(dplyr)
+library(lmtest)
+library(sandwich)
+
+# Descripitive Statistics
+  # Creat Table 1: Summary Statistics
+stargazer(aidData,header=F,keep=c("lcommit3a","aid",
+                                  "lcommit3a_hm"),
+          title="Summary Statistics for Aid Commitments",
+          covariate.labels = c("AID COMMITMENTS (ln)",
+                               "COMMIT AID",
+                               "*AID COMMITMENTS (ln)"),
+          median=T,notes = "*Aid commitments, excluding zero values.")
+  
+  # Figure 1: Outcome Variable Distribution
+aidData %>%
+  ggplot(aes(lcommit3a)) +
+  geom_histogram(aes(y=..density..),color="black") +
+  geom_density(fill="lightgrey",alpha=0.5) +
+  theme_classic() +
+  xlab("Aid Commitments (ln)")
+
+  # Figure 2: Binary Outcome Distribution
+aidData %>% 
+  group_by(aid) %>%
+  summarize(n=n()/nrow(aidData)) %>%
+  ggplot(aes(as.factor(aid),n)) + 
+  geom_col(width=.45,color="black") +
+  geom_text(aes(label=round(n,2)),vjust=1.6,color="white",
+            size=4.5) +
+  theme_classic() +
+  xlab("Binary Indicator of Aid Commitments") +
+  ylab("Proportion of Dyad-Years") 
+
+  # Figure 3: Truncated Outcome Distribution
+aidData %>%
+  ggplot(aes(lcommit3a_hm)) +
+  geom_histogram(aes(y=..density..),color="black") +
+  geom_density(fill="lightgrey",alpha=0.5) +
+  theme_classic() +
+  xlab("Truncated Aid Commitments (ln)")
+
+# Analysis
+  # Estimate selection stage using logit
+logitData <- lm(aid ~ lusmil + lsipri + colony + absidealdiff + unsc + ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + donor + year + dyad,aidData)$model
+lfmbase <- aid ~ lusmil + lsipri + colony + absidealdiff + unsc + ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + donor + as.factor(year)
+lfmadd <- aid ~ lusmil + lsipri + colony + absidealdiff + unsc + ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + sumAll_lag + donor + as.factor(year)
+lfmmul <- aid ~ lusmil + lsipri + colony + absidealdiff + unsc + ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + donor + as.factor(year) +
+  lsipri*sumAll_lag+colony*sumAll_lag + absidealdiff*sumAll_lag + 
+  unsc*sumAll_lag + ltrade_lag*sumAll_lag +
+  lgdpcap_lag*sumAll_lag + ldisaster*sumAll_lag +
+  civwar_lag*sumAll_lag + lmig_flow_lag*sumAll_lag
+logit1 <- glm(lfmbase,aidData,family=binomial) # Base specification
+logit2 <- glm(lfmadd,aidData,family=binomial)  # Additive specification
+logit3 <- glm(lfmmul,aidData,family=binomial)  # Multiplicative specification
+
+  # Estimate level state using OLS
+linearData <- lm(lcommit3a_hm ~ lusmil + lsipri + colony + absidealdiff + unsc +
+  ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + donor + year + dyad,aidData)$model
+lmbase <- lcommit3a_hm ~ lusmil + lsipri + colony + absidealdiff + unsc + 
+  ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + donor + as.factor(year)
+lmadd <- lcommit3a_hm ~ lusmil + lsipri + colony + absidealdiff + unsc + 
+  ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + sumAll_lag +donor + as.factor(year)
+lmmul <- lcommit3a_hm ~ lusmil + lsipri + colony + absidealdiff + unsc + 
+  ltrade_lag +
+  lgdpcap_lag + ldisaster + civwar_lag + lmig_flow_lag + 
+  ldist + lpop_lag + fh_lag + sumAll_lag + donor + as.factor(year) +
+  lsipri*sumAll_lag+colony*sumAll_lag + absidealdiff*sumAll_lag + 
+  unsc*sumAll_lag + ltrade_lag*sumAll_lag +
+  lgdpcap_lag*sumAll_lag + ldisaster*sumAll_lag +
+  civwar_lag*sumAll_lag + lmig_flow_lag*sumAll_lag
+linear1 <- lm(lmbase,aidData) # Base specification
+linear2 <- lm(lmadd,aidData)  # Additive specification
+linear3 <- lm(lmmul,aidData)  # Multiplicative specification
+
+    # Estimate Robust SEs
+lgrob_se1 <- vcovPL(logit1,cluster=logitData$dyad,order.by=logitData$year,
+                    lag="max",adjust=T)
+lgrob_se2 <- vcovPL(logit2,cluster=logitData$dyad,order.by=logitData$year,
+                    lag="max",adjust=T)
+lgrob_se3 <- vcovPL(logit3,cluster=logitData$dyad,order.by=logitData$year,
+                    lab="max",adjust=T)
+lmrob_se1 <- vcovPL(linear1,cluster=linearData$dyad,order.by=linearData$year,
+                    lag="max",adjust=T)
+lmrob_se2 <- vcovPL(linear2,cluster=linearData$dyad,order.by=linearData$year,
+                    lag="max",adjust=T)
+lmrob_se3 <- vcovPL(linear3,cluster=linearData$dyad,order.by=linearData$year,
+                    lab="max",adjust=T)
+SEs <- list(sqrt(diag(lgrob_se1)),sqrt(diag(lgrob_se2)),sqrt(diag(lgrob_se3)),
+            sqrt(diag(lmrob_se1)),sqrt(diag(lmrob_se2)),sqrt(diag(lmrob_se3)))
+
+  # Create Table 2: Regression Table
+stargazer(logit1,logit2,logit3,linear1,linear2,linear3,
+          header=F,summary=F,omit=c(25:54),
+          se=SEs,font.size = "footnotesize",
+          omit.stat = c("aic","f","rsq","ser"),
+          dep.var.caption = NULL,
+          dep.var.labels = c("Selection","Non-zero Aid"),
+          no.space = T,
+          title="Regression Results")
+```
+
